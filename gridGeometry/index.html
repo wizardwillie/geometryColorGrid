@@ -17,10 +17,38 @@
           flip it upside down, spin it, and recolor the whole shape in one move.
         </p>
 
+        <section class="section section--history">
+          <div class="section-heading">
+            <h2>History</h2>
+            <p>Experiment freely with grouped undo and redo.</p>
+          </div>
+
+          <div class="history-actions">
+            <button
+              class="ghost-button"
+              id="undo-action"
+              type="button"
+              aria-keyshortcuts="Meta+Z Control+Z"
+            >
+              Undo
+            </button>
+            <button
+              class="ghost-button"
+              id="redo-action"
+              type="button"
+              aria-keyshortcuts="Meta+Shift+Z Control+Shift+Z"
+            >
+              Redo
+            </button>
+          </div>
+
+          <p class="history-hint">Use Cmd/Ctrl+Z to undo and Shift+Cmd/Ctrl+Z to redo.</p>
+        </section>
+
         <section class="section">
           <div class="section-heading">
             <h2>Build</h2>
-            <p>Create your form on the top-down grid.</p>
+            <p>Create your form on the top-down grid or drop in a starter structure instantly.</p>
           </div>
 
           <div class="segmented-group" id="tool-picker" aria-label="Build tools">
@@ -55,9 +83,17 @@
             </div>
           </div>
 
+          <div class="field">
+            <span>Starter shape</span>
+            <div class="select-field">
+              <select id="shape-select" aria-label="Starter shape"></select>
+            </div>
+            <p class="field-help" id="shape-description"></p>
+          </div>
+
           <div class="action-row">
-            <button class="ghost-button" id="preset-pyramid" type="button">Seed Pyramid</button>
-            <button class="ghost-button" id="preset-ring" type="button">Seed Ring</button>
+            <button class="ghost-button" id="apply-shape" type="button">Apply Shape</button>
+            <button class="ghost-button" id="random-shape" type="button">Random Shape</button>
             <button class="ghost-button" id="clear-grid" type="button">Clear Shape</button>
           </div>
         </section>
@@ -101,6 +137,7 @@
             <li>Click or drag across the grid to sculpt your pattern.</li>
             <li>Rotate the preview to reach different side faces.</li>
             <li>Symmetry modes mirror each build action automatically.</li>
+            <li>Undo and redo keep drag edits and slider changes grouped cleanly.</li>
           </ul>
         </section>
       </aside>
@@ -144,8 +181,8 @@
             <label class="field">
               <span>Spin speed</span>
               <div class="range-row">
-                <input id="spin-speed" type="range" min="10" max="180" step="5" value="45">
-                <strong id="spin-speed-value">45 deg/s</strong>
+                <input id="spin-speed" type="range" min="0" max="100" step="1" value="48">
+                <strong id="spin-speed-value">120 deg/s</strong>
               </div>
             </label>
 

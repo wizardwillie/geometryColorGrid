@@ -41,6 +41,15 @@ const FACE_DIRECTIONS = ["top", "north", "east", "south", "west"];
 const ROTATION_STEP = Math.PI / 2;
 const SCENE_CENTER_X = 500;
 const SCENE_CENTER_Y = 400;
+const HISTORY_LIMIT = 120;
+const DEFAULT_FACE_COLOR = "#d8c1a2";
+const SPIN_SPEED_SLIDER = {
+  min: 0,
+  max: 100,
+  defaultValue: 48,
+  minDegreesPerSecond: 12,
+  maxDegreesPerSecond: 1080,
+};
 
 const COLOR_SCHEMES = [
   { id: "selected", label: "Current" },
@@ -58,6 +67,57 @@ const SPIN_MODES = [
   { id: "swing", label: "Swing" },
 ];
 
+const SHAPE_DEFINITIONS = [
+  {
+    id: "pyramid",
+    label: "Pyramid",
+    description: "A centered stepped peak with strong symmetry and a clean silhouette.",
+    generate: generatePyramidShape,
+  },
+  {
+    id: "ring",
+    label: "Ring",
+    description: "A hollow circular ridge that looks great with fast spin and bold color bands.",
+    generate: generateRingShape,
+  },
+  {
+    id: "dome",
+    label: "Dome",
+    description: "A rounded mound for softer, sculptural forms and smooth painted shading.",
+    generate: generateDomeShape,
+  },
+  {
+    id: "cross",
+    label: "Cross",
+    description: "A thick plus-shaped structure with a stronger center mass.",
+    generate: generateCrossShape,
+  },
+  {
+    id: "stairs",
+    label: "Stairs",
+    description: "A stepped diagonal ramp that feels architectural from one side and hypnotic in motion.",
+    generate: generateStairsShape,
+  },
+  {
+    id: "diamond",
+    label: "Diamond",
+    description: "A faceted manhattan-distance peak with a crisp geometric footprint.",
+    generate: generateDiamondShape,
+  },
+  {
+    id: "spiral",
+    label: "Spiral",
+    description: "A swirling height pattern built for trippy motion and layered recoloring.",
+    generate: generateSpiralShape,
+  },
+  {
+    id: "temple",
+    label: "Temple",
+    description: "A stacked terrace form with broad tiers and a dramatic central plateau.",
+    generate: generateTempleShape,
+  },
+];
+
 const state = {
   gridSize: 8,
   maxHeight: 6,
@@ -65,13 +125,11 @@ const state = {
   symmetry: "none",
   viewAngle: 0,
   viewFlipped: false,
+  selectedShape: SHAPE_DEFINITIONS[0].id,
   selectedColor: PALETTE[0],
   selectedScheme: "selected",
   spinMode: "clockwise",
-  spinSpeed: 45,
-  spinning: false,
-  spinElapsed: 0,
-  spinAnchorAngle: 0,
+  spinSpeed: sliderValueToSpinSpeed(SPIN_SPEED_SLIDER.defaultValue),
   hoveredFace: null,
   selectedFace: null,
   paintSummary: "",
@@ -80,6 +138,9 @@ const state = {
   heights: makeGrid(8, 0),
   faceColors: {},
 };
+
+const history = createHistoryManager(HISTORY_LIMIT);
+const spinController = createSpinController();
 
 const dom = {
   gridEditor: document.querySelector("#grid-editor"),
@@ -91,6 +152,8 @@ const dom = {
   scene: document.querySelector("#scene"),
   toolPicker: document.querySelector("#tool-picker"),
   symmetryPicker: document.querySelector("#symmetry-picker"),
+  shapeSelect: document.querySelector("#shape-select"),
+  shapeDescription: document.querySelector("#shape-description"),
   schemePicker: document.querySelector("#scheme-picker"),
   spinModePicker: document.querySelector("#spin-mode-picker"),
   gridSize: document.querySelector("#grid-size"),
@@ -104,14 +167,13 @@ const dom = {
   rotateRight: document.querySelector("#rotate-right"),
   flipView: document.querySelector("#flip-view"),
   spinToggle: document.querySelector("#spin-toggle"),
+  applyShape: document.querySelector("#apply-shape"),
+  randomShape: document.querySelector("#random-shape"),
   applyScheme: document.querySelector("#apply-scheme"),
   clearGrid: document.querySelector("#clear-grid"),
-  presetPyramid: document.querySelector("#preset-pyramid"),
-  presetRing: document.querySelector("#preset-ring"),
+  undoAction: document.querySelector("#undo-action"),
+  redoAction: document.querySelector("#redo-action"),
 };
-
-let spinFrameId = null;
-let lastSpinTimestamp = 0;
 
 bindEvents();
 render();
@@ -137,6 +199,11 @@ function bindEvents() {
     renderSymmetryButtons();
   });
 
+  dom.shapeSelect.addEventListener("change", (event) => {
+    state.selectedShape = event.target.value;
+    renderShapeControls();
+  });
+
   dom.schemePicker.addEventListener("click", (event) => {
     const button = event.target.closest("[data-scheme]");
     if (!button) {
@@ -156,27 +223,42 @@ function bindEvents() {
     state.spinMode = button.dataset.spinMode;
     resetSpinMotion();
     renderSpinModeButtons();
-  });
-
-  dom.gridSize.addEventListener("input", (event) => {
-    resizeGrid(Number(event.target.value));
-  });
-
-  dom.maxHeight.addEventListener("input", (event) => {
-    state.maxHeight = Number(event.target.value);
-    clampHeights();
-    render();
-  });
-
-  dom.spinSpeed.addEventListener("input", (event) => {
-    state.spinSpeed = Number(event.target.value);
     renderPreviewControls();
   });
 
-  dom.customColor.addEventListener("input", (event) => {
-    state.selectedColor = event.target.value.toLowerCase();
-    renderPalette();
-    updateStatusCards();
+  bindGroupedControl(dom.gridSize, {
+    sessionId: "grid-size",
+    label: "Resize Grid",
+    onInput: (value) => {
+      resizeGrid(Number(value));
+      render();
+    },
+  });
+
+  bindGroupedControl(dom.maxHeight, {
+    sessionId: "max-height",
+    label: "Adjust Max Height",
+    onInput: (value) => {
+      setMaxHeight(Number(value));
+      render();
+    },
+  });
+
+  bindGroupedControl(dom.customColor, {
+    sessionId: "selected-color",
+    label: "Change Paint Color",
+    onInput: (value) => {
+      setSelectedColor(value);
+      renderPalette();
+      renderGridControls();
+      renderHistoryControls();
+      updateStatusCards();
+    },
+  });
+
+  dom.spinSpeed.addEventListener("input", (event) => {
+    setSpinSpeed(sliderValueToSpinSpeed(Number(event.target.value)));
+    renderPreviewControls();
   });
 
   dom.rotateLeft.addEventListener("click", () => rotatePreview(-1));
@@ -190,22 +272,48 @@ function bindEvents() {
     updateStatusCards();
   });
 
-  dom.spinToggle.addEventListener("click", toggleSpin);
+  dom.spinToggle.addEventListener("click", () => {
+    setSpinRunning(!spinController.running);
+  });
+
+  dom.applyShape.addEventListener("click", () => {
+    const shapeDefinition = getShapeDefinition(state.selectedShape);
+    if (!shapeDefinition) {
+      return;
+    }
+
+    performDesignAction(`Apply ${shapeDefinition.label}`, () => {
+      applyShapeDefinition(shapeDefinition.id);
+    });
+  });
+
+  dom.randomShape.addEventListener("click", () => {
+    const randomShapeId = getRandomShapeId();
+    state.selectedShape = randomShapeId;
+
+    const shapeDefinition = getShapeDefinition(randomShapeId);
+    performDesignAction(`Apply ${shapeDefinition.label}`, () => {
+      applyShapeDefinition(randomShapeId);
+    });
+  });
+
+  dom.undoAction.addEventListener("click", () => {
+    undoHistory();
+  });
+
+  dom.redoAction.addEventListener("click", () => {
+    redoHistory();
+  });
 
   dom.applyScheme.addEventListener("click", () => {
-    applySchemeToShape(state.selectedScheme);
+    performDesignAction("Apply Color Scheme", () => {
+      applySchemeToShape(state.selectedScheme);
+    });
   });
 
   dom.clearGrid.addEventListener("click", () => {
-    state.heights = makeGrid(state.gridSize, 0);
-    state.faceColors = {};
-    state.selectedFace = null;
-    state.paintSummary = "Shape cleared. Build a new form and paint it however you like.";
-    render();
+    performDesignAction("Clear Shape", clearShape);
   });
-
-  dom.presetPyramid.addEventListener("click", () => applyPreset("pyramid"));
-  dom.presetRing.addEventListener("click", () => applyPreset("ring"));
 
   dom.gridEditor.addEventListener("pointerdown", (event) => {
     const cell = event.target.closest(".grid-cell");
@@ -213,9 +321,14 @@ function bindEvents() {
       return;
     }
 
+    finalizeAllHistorySessions();
     state.dragActive = true;
     state.dragVisited = new Set();
-    applyToolAt(Number(cell.dataset.x), Number(cell.dataset.y));
+    startHistorySession("grid-drag", getSculptHistoryLabel());
+
+    if (applyToolAt(Number(cell.dataset.x), Number(cell.dataset.y))) {
+      renderEditableDesign();
+    }
   });
 
   dom.gridEditor.addEventListener("pointerover", (event) => {
@@ -233,13 +346,24 @@ function bindEvents() {
       return;
     }
 
-    applyToolAt(Number(cell.dataset.x), Number(cell.dataset.y));
+    if (applyToolAt(Number(cell.dataset.x), Number(cell.dataset.y))) {
+      renderEditableDesign();
+    }
   });
 
-  document.addEventListener("pointerup", () => {
+  const finalizeGridDrag = () => {
+    if (!state.dragActive && !history.sessions.has("grid-drag")) {
+      return;
+    }
+
     state.dragActive = false;
     state.dragVisited = new Set();
-  });
+    finalizeHistorySession("grid-drag");
+    renderHistoryControls();
+  };
+
+  document.addEventListener("pointerup", finalizeGridDrag);
+  document.addEventListener("pointercancel", finalizeGridDrag);
 
   dom.scene.addEventListener("click", (event) => {
     const face = event.target.closest(".iso-face");
@@ -247,11 +371,17 @@ function bindEvents() {
       return;
     }
 
-    paintFace(
-      Number(face.dataset.x),
-      Number(face.dataset.y),
-      Number(face.dataset.z),
-      face.dataset.face
+    performDesignAction(
+      "Paint Face",
+      () => {
+        paintFace(
+          Number(face.dataset.x),
+          Number(face.dataset.y),
+          Number(face.dataset.z),
+          face.dataset.face
+        );
+      },
+      { renderMode: "scene" }
     );
   });
 
@@ -278,18 +408,43 @@ function bindEvents() {
     state.hoveredFace = null;
     updateStatusCards();
   });
+
+  document.addEventListener("keydown", handleHistoryShortcuts);
+}
+
+function bindGroupedControl(control, config) {
+  control.addEventListener("input", (event) => {
+    startHistorySession(config.sessionId, config.label);
+    config.onInput(event.target.value);
+  });
+
+  const finalize = () => {
+    finalizeHistorySession(config.sessionId, config.label);
+  };
+
+  control.addEventListener("change", finalize);
+  control.addEventListener("blur", finalize);
 }
 
 function render() {
   renderToolButtons();
   renderSymmetryButtons();
+  renderShapeControls();
   renderSchemeButtons();
   renderSpinModeButtons();
   renderPalette();
   renderGridControls();
   renderPreviewControls();
+  renderHistoryControls();
   renderGridEditor();
   renderScene();
+  updateStatusCards();
+}
+
+function renderEditableDesign() {
+  renderGridEditor();
+  renderScene();
+  renderHistoryControls();
   updateStatusCards();
 }
 
@@ -303,6 +458,14 @@ function renderSymmetryButtons() {
   dom.symmetryPicker.querySelectorAll("[data-symmetry]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.symmetry === state.symmetry);
   });
+}
+
+function renderShapeControls() {
+  dom.shapeSelect.innerHTML = SHAPE_DEFINITIONS.map(
+    (shape) => `<option value="${shape.id}">${shape.label}</option>`
+  ).join("");
+  dom.shapeSelect.value = state.selectedShape;
+  dom.shapeDescription.textContent = getShapeDefinition(state.selectedShape)?.description ?? "";
 }
 
 function renderSchemeButtons() {
@@ -346,10 +509,26 @@ function renderPreviewControls() {
   dom.viewLabel.textContent = getViewLabel();
   dom.flipView.textContent = state.viewFlipped ? "Flip Upright" : "Flip Upside Down";
   dom.flipView.classList.toggle("is-active", state.viewFlipped);
-  dom.spinSpeed.value = String(state.spinSpeed);
-  dom.spinSpeedValue.textContent = `${state.spinSpeed} deg/s`;
-  dom.spinToggle.textContent = state.spinning ? "Pause Spin" : "Start Spin";
-  dom.spinToggle.classList.toggle("is-active", state.spinning);
+  dom.spinSpeed.value = String(spinSpeedToSliderValue(state.spinSpeed));
+  dom.spinSpeedValue.textContent = formatSpinSpeed(state.spinSpeed);
+  dom.spinToggle.textContent = spinController.running ? "Stop Spin" : "Start Spin";
+  dom.spinToggle.classList.toggle("is-active", spinController.running);
+}
+
+function renderHistoryControls() {
+  const undoLabel =
+    history.past.length > 0 ? history.past[history.past.length - 1].label : null;
+  const redoLabel =
+    history.future.length > 0 ? history.future[history.future.length - 1].label : null;
+
+  dom.undoAction.disabled = history.past.length === 0;
+  dom.redoAction.disabled = history.future.length === 0;
+  dom.undoAction.title = undoLabel
+    ? `Undo ${undoLabel} (Cmd/Ctrl+Z)`
+    : "Nothing to undo";
+  dom.redoAction.title = redoLabel
+    ? `Redo ${redoLabel} (Shift+Cmd/Ctrl+Z)`
+    : "Nothing to redo";
 }
 
 function renderPalette() {
@@ -367,10 +546,13 @@ function renderPalette() {
     }
 
     button.addEventListener("click", () => {
-      state.selectedColor = normalizeHex(color);
-      renderPalette();
-      renderGridControls();
-      updateStatusCards();
+      performDesignAction(
+        "Change Paint Color",
+        () => {
+          setSelectedColor(color);
+        },
+        { renderMode: "color" }
+      );
     });
 
     dom.palette.appendChild(button);
@@ -462,9 +644,243 @@ function updateStatusCards() {
   dom.paintStatus.textContent = `${selectedText} Current color: ${state.selectedColor.toLowerCase()}.`;
 }
 
+function performDesignAction(label, mutate, options = {}) {
+  finalizeAllHistorySessions();
+  const before = captureDesignSnapshot();
+  mutate();
+  pushHistorySnapshot(before, label);
+
+  if (options.renderMode === "scene") {
+    renderGridControls();
+    renderHistoryControls();
+    renderScene();
+    updateStatusCards();
+    return;
+  }
+
+  if (options.renderMode === "color") {
+    renderPalette();
+    renderGridControls();
+    renderHistoryControls();
+    updateStatusCards();
+    return;
+  }
+
+  render();
+}
+
+function createHistoryManager(limit) {
+  return {
+    limit,
+    past: [],
+    future: [],
+    sessions: new Map(),
+  };
+}
+
+function createSpinController() {
+  return {
+    running: false,
+    frameId: null,
+    lastTimestamp: null,
+    elapsed: 0,
+    anchorAngle: 0,
+  };
+}
+
+function startHistorySession(id, label) {
+  if (history.sessions.has(id)) {
+    return;
+  }
+
+  history.sessions.set(id, {
+    before: captureDesignSnapshot(),
+    label,
+  });
+}
+
+function finalizeHistorySession(id, labelOverride) {
+  const session = history.sessions.get(id);
+  if (!session) {
+    return false;
+  }
+
+  history.sessions.delete(id);
+  return pushHistorySnapshot(session.before, labelOverride ?? session.label);
+}
+
+function finalizeAllHistorySessions() {
+  if (history.sessions.size === 0) {
+    return;
+  }
+
+  if (history.sessions.has("grid-drag")) {
+    state.dragActive = false;
+    state.dragVisited = new Set();
+  }
+
+  Array.from(history.sessions.keys()).forEach((id) => {
+    finalizeHistorySession(id);
+  });
+}
+
+function pushHistorySnapshot(beforeSnapshot, label) {
+  const afterSnapshot = captureDesignSnapshot();
+  if (designSnapshotsEqual(beforeSnapshot, afterSnapshot)) {
+    renderHistoryControls();
+    return false;
+  }
+
+  history.past.push({ snapshot: beforeSnapshot, label });
+  if (history.past.length > history.limit) {
+    history.past.shift();
+  }
+
+  history.future = [];
+  renderHistoryControls();
+  return true;
+}
+
+function undoHistory() {
+  finalizeAllHistorySessions();
+  if (history.past.length === 0) {
+    return false;
+  }
+
+  const currentSnapshot = captureDesignSnapshot();
+  const entry = history.past.pop();
+  history.future.push({ snapshot: currentSnapshot, label: entry.label });
+  restoreDesignSnapshot(entry.snapshot, `Undid ${entry.label}.`);
+  return true;
+}
+
+function redoHistory() {
+  finalizeAllHistorySessions();
+  if (history.future.length === 0) {
+    return false;
+  }
+
+  const currentSnapshot = captureDesignSnapshot();
+  const entry = history.future.pop();
+  history.past.push({ snapshot: currentSnapshot, label: entry.label });
+  restoreDesignSnapshot(entry.snapshot, `Redid ${entry.label}.`);
+  return true;
+}
+
+function captureDesignSnapshot() {
+  return {
+    gridSize: state.gridSize,
+    maxHeight: state.maxHeight,
+    selectedColor: normalizeHex(state.selectedColor),
+    heights: state.heights.map((row) => row.slice()),
+    faceColors: cloneFaceColors(state.faceColors),
+  };
+}
+
+function restoreDesignSnapshot(snapshot, message) {
+  state.gridSize = snapshot.gridSize;
+  state.maxHeight = snapshot.maxHeight;
+  state.selectedColor = normalizeHex(snapshot.selectedColor);
+  state.heights = snapshot.heights.map((row) => row.slice());
+  state.faceColors = cloneFaceColors(snapshot.faceColors);
+  state.selectedFace = null;
+  state.paintSummary = message;
+  state.dragActive = false;
+  state.dragVisited = new Set();
+  clearHoveredFace();
+  render();
+}
+
+function cloneFaceColors(faceColors) {
+  const clone = {};
+
+  Object.entries(faceColors).forEach(([key, faces]) => {
+    clone[key] = {};
+    FACE_DIRECTIONS.forEach((face) => {
+      if (faces[face]) {
+        clone[key][face] = faces[face];
+      }
+    });
+  });
+
+  return clone;
+}
+
+function designSnapshotsEqual(first, second) {
+  if (
+    first.gridSize !== second.gridSize ||
+    first.maxHeight !== second.maxHeight ||
+    first.selectedColor !== second.selectedColor
+  ) {
+    return false;
+  }
+
+  if (first.heights.length !== second.heights.length) {
+    return false;
+  }
+
+  for (let y = 0; y < first.heights.length; y += 1) {
+    if (first.heights[y].length !== second.heights[y].length) {
+      return false;
+    }
+
+    for (let x = 0; x < first.heights[y].length; x += 1) {
+      if (first.heights[y][x] !== second.heights[y][x]) {
+        return false;
+      }
+    }
+  }
+
+  const firstKeys = Object.keys(first.faceColors).sort();
+  const secondKeys = Object.keys(second.faceColors).sort();
+  if (firstKeys.length !== secondKeys.length) {
+    return false;
+  }
+
+  for (let index = 0; index < firstKeys.length; index += 1) {
+    const key = firstKeys[index];
+    if (key !== secondKeys[index]) {
+      return false;
+    }
+
+    for (const face of FACE_DIRECTIONS) {
+      if ((first.faceColors[key]?.[face] ?? null) !== (second.faceColors[key]?.[face] ?? null)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function handleHistoryShortcuts(event) {
+  if (event.defaultPrevented || event.altKey) {
+    return;
+  }
+
+  const usesModifier = event.metaKey || event.ctrlKey;
+  if (!usesModifier) {
+    return;
+  }
+
+  const key = event.key.toLowerCase();
+  if (key !== "z") {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (event.shiftKey) {
+    redoHistory();
+    return;
+  }
+
+  undoHistory();
+}
+
 function resizeGrid(newSize) {
   if (newSize === state.gridSize) {
-    return;
+    return false;
   }
 
   const nextGrid = makeGrid(newSize, 0);
@@ -478,68 +894,246 @@ function resizeGrid(newSize) {
 
   state.gridSize = newSize;
   state.heights = nextGrid;
+  state.selectedFace = null;
   state.paintSummary = `Grid resized to ${newSize} x ${newSize}.`;
   pruneFaceColors();
-  render();
+  return true;
+}
+
+function setMaxHeight(newHeight) {
+  if (newHeight === state.maxHeight) {
+    return false;
+  }
+
+  state.maxHeight = newHeight;
+  state.paintSummary = `Maximum stack height set to ${state.maxHeight} levels.`;
+  clampHeights();
+  return true;
 }
 
 function clampHeights() {
   state.heights = state.heights.map((row) => row.map((height) => Math.min(height, state.maxHeight)));
-  state.paintSummary = `Maximum stack height set to ${state.maxHeight} levels.`;
   pruneFaceColors();
 }
 
-function applyPreset(kind) {
-  const size = state.gridSize;
-  const center = (size - 1) / 2;
-
-  state.heights = makeGrid(size, 0);
+function clearShape() {
+  state.heights = makeGrid(state.gridSize, 0);
   state.faceColors = {};
   state.selectedFace = null;
+  state.paintSummary = "Shape cleared. Build a new form and paint it however you like.";
+}
 
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      if (kind === "pyramid") {
-        const distance = Math.max(Math.abs(x - center), Math.abs(y - center));
-        state.heights[y][x] = Math.max(0, state.maxHeight - Math.floor(distance * 1.5) - 1);
-      } else if (kind === "ring") {
-        const distance = Math.round(Math.abs(x - center) + Math.abs(y - center));
-        const outer = Math.max(0, state.maxHeight - Math.abs(distance - Math.floor(size / 2)));
-        state.heights[y][x] = outer > 2 ? Math.min(outer - 1, state.maxHeight) : 0;
-      }
+function applyShapeDefinition(shapeId) {
+  const definition = getShapeDefinition(shapeId);
+  if (!definition) {
+    return false;
+  }
+
+  state.heights = definition.generate();
+  state.faceColors = {};
+  state.selectedFace = null;
+  state.paintSummary = `${definition.label} generated.`;
+  return true;
+}
+
+function setSelectedColor(color) {
+  const normalized = normalizeHex(color);
+  if (normalized === state.selectedColor) {
+    return false;
+  }
+
+  state.selectedColor = normalized;
+  state.paintSummary = `Current paint color set to ${normalized}.`;
+  return true;
+}
+
+function getShapeDefinition(shapeId) {
+  return SHAPE_DEFINITIONS.find((shape) => shape.id === shapeId) ?? SHAPE_DEFINITIONS[0];
+}
+
+function getRandomShapeId() {
+  const options = SHAPE_DEFINITIONS.filter((shape) => shape.id !== state.selectedShape);
+  const pool = options.length > 0 ? options : SHAPE_DEFINITIONS;
+  const randomIndex = Math.floor(Math.random() * pool.length);
+  return pool[randomIndex].id;
+}
+
+function createShapeContext() {
+  const size = state.gridSize;
+  const maxHeight = state.maxHeight;
+  const center = (size - 1) / 2;
+  const radius = Math.max(1, center);
+
+  return {
+    size,
+    maxHeight,
+    center,
+    radius,
+  };
+}
+
+function buildShapeGrid(generator) {
+  const context = createShapeContext();
+  const grid = makeGrid(context.size, 0);
+
+  for (let y = 0; y < context.size; y += 1) {
+    for (let x = 0; x < context.size; x += 1) {
+      const dx = x - context.center;
+      const dy = y - context.center;
+      const radial = Math.sqrt(dx * dx + dy * dy);
+      const chebyshev = Math.max(Math.abs(dx), Math.abs(dy));
+      const manhattan = Math.abs(dx) + Math.abs(dy);
+      const diagonalProgress = context.size > 1 ? (x + y) / (2 * (context.size - 1)) : 0;
+      const angleNormalized =
+        ((Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+
+      grid[y][x] = clampGeneratedHeight(
+        generator({
+          ...context,
+          x,
+          y,
+          dx,
+          dy,
+          radial,
+          chebyshev,
+          manhattan,
+          diagonalProgress,
+          angleNormalized,
+          normalizedRadius: radial / (context.radius + 0.35),
+        })
+      );
     }
   }
 
-  state.paintSummary = kind === "pyramid" ? "Seeded a pyramid." : "Seeded a ring.";
-  render();
+  return grid;
+}
+
+function clampGeneratedHeight(height) {
+  return Math.max(0, Math.min(state.maxHeight, Math.round(height)));
+}
+
+function toShapeHeight(maxHeight, intensity, curve = 1) {
+  const clamped = Math.max(0, Math.min(1, intensity));
+  return Math.pow(clamped, curve) * maxHeight;
+}
+
+function generatePyramidShape() {
+  return buildShapeGrid((cell) =>
+    toShapeHeight(cell.maxHeight, 1 - cell.chebyshev / (cell.radius + 0.6))
+  );
+}
+
+function generateRingShape() {
+  return buildShapeGrid((cell) => {
+    const targetRadius = cell.radius * 0.63;
+    const bandWidth = Math.max(0.95, cell.radius * 0.22);
+    const ringIntensity = 1 - Math.abs(cell.radial - targetRadius) / bandWidth;
+    return toShapeHeight(cell.maxHeight, ringIntensity, 1.15);
+  });
+}
+
+function generateDomeShape() {
+  return buildShapeGrid((cell) => {
+    const normalized = cell.radial / (cell.radius + 0.35);
+    return toShapeHeight(cell.maxHeight, Math.sqrt(Math.max(0, 1 - normalized * normalized)));
+  });
+}
+
+function generateCrossShape() {
+  return buildShapeGrid((cell) => {
+    const armWidth = Math.max(0.9, cell.radius * 0.24);
+    if (Math.abs(cell.dx) > armWidth && Math.abs(cell.dy) > armWidth) {
+      return 0;
+    }
+
+    const reach = Math.max(Math.abs(cell.dx), Math.abs(cell.dy));
+    const armFalloff = 1 - reach / (cell.radius + 0.5);
+    const coreBoost =
+      Math.abs(cell.dx) <= armWidth && Math.abs(cell.dy) <= armWidth ? 0.25 : 0;
+
+    return toShapeHeight(cell.maxHeight, Math.min(1, 0.42 + armFalloff * 0.58 + coreBoost));
+  });
+}
+
+function generateStairsShape() {
+  return buildShapeGrid((cell) => {
+    const stairProgress = 1 - cell.diagonalProgress;
+    const stepped = Math.floor(stairProgress * (cell.maxHeight + 0.35));
+    return Math.max(0, stepped);
+  });
+}
+
+function generateDiamondShape() {
+  return buildShapeGrid((cell) =>
+    toShapeHeight(cell.maxHeight, 1 - cell.manhattan / (cell.radius * 1.45 + 0.35))
+  );
+}
+
+function generateSpiralShape() {
+  return buildShapeGrid((cell) => {
+    const envelope = Math.max(0, 1 - cell.normalizedRadius);
+    if (envelope <= 0) {
+      return 0;
+    }
+
+    const turns = 1.85;
+    const phase = (cell.angleNormalized + cell.normalizedRadius * turns) % 1;
+    const band = 1 - Math.min(1, Math.abs(phase - 0.5) * 3.15);
+    const centerLift = Math.max(0, 1 - cell.radial / (cell.radius * 0.55 + 0.35)) * 0.25;
+    return toShapeHeight(
+      cell.maxHeight,
+      Math.max(0, band) * (0.55 + envelope * 0.45) + centerLift,
+      1.1
+    );
+  });
+}
+
+function generateTempleShape() {
+  return buildShapeGrid((cell) => {
+    const terraceCount = Math.max(3, Math.min(cell.maxHeight, 5));
+    const terraceBase = Math.max(0, 1 - cell.chebyshev / (cell.radius + 0.65));
+    if (terraceBase <= 0) {
+      return 0;
+    }
+    const snapped = Math.ceil(terraceBase * terraceCount) / terraceCount;
+    return toShapeHeight(cell.maxHeight, snapped, 1.05);
+  });
 }
 
 function applyToolAt(x, y) {
+  let changed = false;
+
   getSymmetryTargets(x, y).forEach((target) => {
     const key = `${target.x},${target.y}`;
     state.dragVisited.add(key);
 
-    if (state.tool === "raise") {
-      state.heights[target.y][target.x] = Math.min(
-        state.maxHeight,
-        state.heights[target.y][target.x] + 1
-      );
-      return;
-    }
+    const currentHeight = state.heights[target.y][target.x];
+    const nextHeight = getNextHeightForTool(currentHeight);
 
-    if (state.tool === "lower") {
-      state.heights[target.y][target.x] = Math.max(0, state.heights[target.y][target.x] - 1);
-      return;
+    if (nextHeight !== currentHeight) {
+      state.heights[target.y][target.x] = nextHeight;
+      changed = true;
     }
-
-    state.heights[target.y][target.x] = 0;
   });
 
-  state.paintSummary = "";
-  pruneFaceColors();
-  renderGridEditor();
-  renderScene();
-  updateStatusCards();
+  if (changed) {
+    state.paintSummary = "";
+    pruneFaceColors();
+  }
+
+  return changed;
+}
+
+function getNextHeightForTool(currentHeight) {
+  if (state.tool === "raise") {
+    return Math.min(state.maxHeight, currentHeight + 1);
+  }
+
+  if (state.tool === "lower") {
+    return Math.max(0, currentHeight - 1);
+  }
+
+  return 0;
 }
 
 function getSymmetryTargets(x, y) {
@@ -561,6 +1155,18 @@ function getSymmetryTargets(x, y) {
   return dedupeTargets(targets);
 }
 
+function getSculptHistoryLabel() {
+  if (state.tool === "raise") {
+    return "Raise Blocks";
+  }
+
+  if (state.tool === "lower") {
+    return "Lower Blocks";
+  }
+
+  return "Erase Blocks";
+}
+
 function rotatePreview(direction) {
   state.viewAngle = normalizeAngle(state.viewAngle + direction * ROTATION_STEP);
   clearHoveredFace();
@@ -569,37 +1175,70 @@ function rotatePreview(direction) {
   updateStatusCards();
 }
 
-function toggleSpin() {
-  state.spinning = !state.spinning;
+function setSpinRunning(shouldRun) {
+  if (shouldRun === spinController.running) {
+    renderPreviewControls();
+    return;
+  }
 
-  if (state.spinning) {
-    resetSpinMotion();
-    lastSpinTimestamp = 0;
-    spinFrameId = window.requestAnimationFrame(stepSpin);
-  } else if (spinFrameId !== null) {
-    window.cancelAnimationFrame(spinFrameId);
-    spinFrameId = null;
+  if (shouldRun) {
+    startSpinLoop();
+  } else {
+    stopSpinLoop();
   }
 
   renderPreviewControls();
 }
 
 function resetSpinMotion() {
-  state.spinElapsed = 0;
-  state.spinAnchorAngle = state.viewAngle;
+  spinController.elapsed = 0;
+  spinController.anchorAngle = state.viewAngle;
+  spinController.lastTimestamp = null;
 }
 
-function stepSpin(timestamp) {
-  if (!state.spinning) {
+function setSpinSpeed(nextSpeed) {
+  state.spinSpeed = clampSpinSpeed(nextSpeed);
+}
+
+function startSpinLoop() {
+  spinController.running = true;
+  resetSpinMotion();
+  cancelSpinFrame();
+  queueSpinFrame();
+}
+
+function stopSpinLoop() {
+  spinController.running = false;
+  spinController.lastTimestamp = null;
+  cancelSpinFrame();
+}
+
+function cancelSpinFrame() {
+  if (spinController.frameId === null) {
     return;
   }
 
-  if (!lastSpinTimestamp) {
-    lastSpinTimestamp = timestamp;
+  window.cancelAnimationFrame(spinController.frameId);
+  spinController.frameId = null;
+}
+
+function queueSpinFrame() {
+  if (!spinController.running || spinController.frameId !== null) {
+    return;
   }
 
-  const deltaSeconds = (timestamp - lastSpinTimestamp) / 1000;
-  lastSpinTimestamp = timestamp;
+  spinController.frameId = window.requestAnimationFrame(stepSpin);
+}
+
+function stepSpin(timestamp) {
+  spinController.frameId = null;
+  if (!spinController.running) {
+    return;
+  }
+
+  const previousTimestamp = spinController.lastTimestamp ?? timestamp;
+  const deltaSeconds = Math.max(0, Math.min((timestamp - previousTimestamp) / 1000, 0.08));
+  spinController.lastTimestamp = timestamp;
   const speed = degreesToRadians(state.spinSpeed);
 
   if (state.spinMode === "clockwise") {
@@ -607,9 +1246,9 @@ function stepSpin(timestamp) {
   } else if (state.spinMode === "counterclockwise") {
     state.viewAngle = normalizeAngle(state.viewAngle - deltaSeconds * speed);
   } else {
-    state.spinElapsed += deltaSeconds * speed;
+    spinController.elapsed += deltaSeconds * speed;
     state.viewAngle = normalizeAngle(
-      state.spinAnchorAngle + Math.sin(state.spinElapsed) * (Math.PI * 0.78)
+      spinController.anchorAngle + Math.sin(spinController.elapsed) * (Math.PI * 0.78)
     );
   }
 
@@ -617,16 +1256,28 @@ function stepSpin(timestamp) {
   renderScene();
   renderPreviewControls();
   updateStatusCards();
-  spinFrameId = window.requestAnimationFrame(stepSpin);
+  queueSpinFrame();
 }
 
 function paintFace(x, y, z, face) {
-  const bucket = ensureFaceBucket(x, y, z);
-  bucket[face] = normalizeHex(state.selectedColor);
+  const nextColor = normalizeHex(state.selectedColor);
+  const currentColor = normalizeHex(getStoredFaceColor(x, y, z, face));
+
   state.selectedFace = { x, y, z, face };
   state.paintSummary = "";
-  renderScene();
-  updateStatusCards();
+
+  if (currentColor === nextColor) {
+    return false;
+  }
+
+  if (nextColor === DEFAULT_FACE_COLOR) {
+    clearStoredFaceColor(x, y, z, face);
+    return true;
+  }
+
+  const bucket = ensureFaceBucket(x, y, z);
+  bucket[face] = nextColor;
+  return true;
 }
 
 function applySchemeToShape(schemeId) {
@@ -634,8 +1285,7 @@ function applySchemeToShape(schemeId) {
   if (cubes === 0) {
     state.paintSummary = "There are no blocks yet, so there is nothing to recolor.";
     state.selectedFace = null;
-    updateStatusCards();
-    return;
+    return false;
   }
 
   const nextColors = {};
@@ -645,11 +1295,18 @@ function applySchemeToShape(schemeId) {
       const height = state.heights[y][x];
       for (let z = 0; z < height; z += 1) {
         const key = cubeKey(x, y, z);
-        nextColors[key] = {};
+        const bucket = {};
 
         FACE_DIRECTIONS.forEach((face) => {
-          nextColors[key][face] = resolveSchemeColor(schemeId, x, y, z, face);
+          const color = resolveSchemeColor(schemeId, x, y, z, face);
+          if (normalizeHex(color) !== DEFAULT_FACE_COLOR) {
+            bucket[face] = color;
+          }
         });
+
+        if (Object.keys(bucket).length > 0) {
+          nextColors[key] = bucket;
+        }
       }
     }
   }
@@ -657,8 +1314,7 @@ function applySchemeToShape(schemeId) {
   state.faceColors = nextColors;
   state.selectedFace = null;
   state.paintSummary = `Applied the ${getSchemeLabel(schemeId)} scheme to all ${cubes} blocks.`;
-  renderScene();
-  updateStatusCards();
+  return true;
 }
 
 function buildSceneData() {
@@ -830,7 +1486,7 @@ function getRenderedFaceColor(x, y, z, face) {
 }
 
 function getStoredFaceColor(x, y, z, face) {
-  return state.faceColors[cubeKey(x, y, z)]?.[face] ?? "#d8c1a2";
+  return state.faceColors[cubeKey(x, y, z)]?.[face] ?? DEFAULT_FACE_COLOR;
 }
 
 function getHeight(x, y) {
@@ -932,6 +1588,19 @@ function ensureFaceBucket(x, y, z) {
     state.faceColors[key] = {};
   }
   return state.faceColors[key];
+}
+
+function clearStoredFaceColor(x, y, z, face) {
+  const key = cubeKey(x, y, z);
+  const bucket = state.faceColors[key];
+  if (!bucket) {
+    return;
+  }
+
+  delete bucket[face];
+  if (Object.keys(bucket).length === 0) {
+    delete state.faceColors[key];
+  }
 }
 
 function pruneFaceColors() {
@@ -1049,6 +1718,43 @@ function shadeHex(hex, percent) {
 
 function normalizeHex(hex) {
   return hex.trim().toLowerCase();
+}
+
+function clampSpinSpeed(speed) {
+  return Math.max(
+    SPIN_SPEED_SLIDER.minDegreesPerSecond,
+    Math.min(SPIN_SPEED_SLIDER.maxDegreesPerSecond, speed)
+  );
+}
+
+function sliderValueToSpinSpeed(value) {
+  const range = SPIN_SPEED_SLIDER.max - SPIN_SPEED_SLIDER.min;
+  const normalized = range === 0 ? 0 : (value - SPIN_SPEED_SLIDER.min) / range;
+  const safeNormalized = Math.max(0, Math.min(1, normalized));
+  const ratio =
+    SPIN_SPEED_SLIDER.maxDegreesPerSecond / SPIN_SPEED_SLIDER.minDegreesPerSecond;
+  return SPIN_SPEED_SLIDER.minDegreesPerSecond * ratio ** safeNormalized;
+}
+
+function spinSpeedToSliderValue(speed) {
+  const safeSpeed = clampSpinSpeed(speed);
+  const ratio =
+    SPIN_SPEED_SLIDER.maxDegreesPerSecond / SPIN_SPEED_SLIDER.minDegreesPerSecond;
+  const normalized = Math.log(safeSpeed / SPIN_SPEED_SLIDER.minDegreesPerSecond) / Math.log(ratio);
+  return Math.round(
+    SPIN_SPEED_SLIDER.min +
+      normalized * (SPIN_SPEED_SLIDER.max - SPIN_SPEED_SLIDER.min)
+  );
+}
+
+function formatSpinSpeed(speed) {
+  const rounded = Math.round(speed);
+  const revolutionsPerSecond = speed / 360;
+  if (revolutionsPerSecond >= 1) {
+    return `${rounded} deg/s (${revolutionsPerSecond.toFixed(1)} rev/s)`;
+  }
+
+  return `${rounded} deg/s`;
 }
 
 function normalizeAngle(angle) {

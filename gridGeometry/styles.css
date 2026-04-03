@@ -36,6 +36,7 @@ body {
 
 button,
 input,
+select,
 code {
   font: inherit;
 }
@@ -118,6 +119,10 @@ h2 {
   border-top: 1px solid var(--line);
 }
 
+.section--history {
+  margin-top: 20px;
+}
+
 .section-heading {
   margin-bottom: 16px;
 }
@@ -138,6 +143,12 @@ h2 {
 
 .field > span {
   font-weight: 600;
+}
+
+.field-help {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
 }
 
 .range-row,
@@ -168,6 +179,22 @@ input[type="color"] {
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.select-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--ink);
+  appearance: none;
+}
+
+.select-field select:focus {
+  outline: 2px solid rgba(216, 111, 53, 0.24);
+  border-color: rgba(120, 53, 23, 0.24);
 }
 
 .segmented-group {
@@ -210,6 +237,14 @@ input[type="color"] {
   box-shadow: 0 10px 20px rgba(88, 60, 31, 0.08);
 }
 
+.option-button:disabled,
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+  box-shadow: none;
+}
+
 .option-button.is-active {
   background: linear-gradient(135deg, #f4b269, #d96d33);
   color: #fff8f1;
@@ -227,6 +262,18 @@ input[type="color"] {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.history-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-hint {
+  margin: 12px 0 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
 }
 
 .palette {
