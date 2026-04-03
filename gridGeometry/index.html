@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Grid Geometry Painter</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="panel controls-panel">
+        <p class="eyebrow">Grid Workshop</p>
+        <h1>Grid Geometry Painter</h1>
+        <p class="lede">
+          Build stacked shapes on a pattern grid, rotate the isometric view,
+          flip it upside down, spin it, and recolor the whole shape in one move.
+        </p>
+
+        <section class="section">
+          <div class="section-heading">
+            <h2>Build</h2>
+            <p>Create your form on the top-down grid.</p>
+          </div>
+
+          <div class="segmented-group" id="tool-picker" aria-label="Build tools">
+            <button class="option-button is-active" data-tool="raise" type="button">Raise</button>
+            <button class="option-button" data-tool="lower" type="button">Lower</button>
+            <button class="option-button" data-tool="erase" type="button">Erase</button>
+          </div>
+
+          <label class="field">
+            <span>Grid size</span>
+            <div class="range-row">
+              <input id="grid-size" type="range" min="4" max="32" step="1" value="8">
+              <strong id="grid-size-value">8 x 8</strong>
+            </div>
+          </label>
+
+          <label class="field">
+            <span>Maximum stack height</span>
+            <div class="range-row">
+              <input id="max-height" type="range" min="2" max="12" step="1" value="6">
+              <strong id="max-height-value">6 levels</strong>
+            </div>
+          </label>
+
+          <div class="field">
+            <span>Symmetry</span>
+            <div class="segmented-group" id="symmetry-picker" aria-label="Symmetry modes">
+              <button class="option-button is-active" data-symmetry="none" type="button">Free</button>
+              <button class="option-button" data-symmetry="mirror-x" type="button">Mirror X</button>
+              <button class="option-button" data-symmetry="mirror-y" type="button">Mirror Y</button>
+              <button class="option-button" data-symmetry="quad" type="button">Quad</button>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button class="ghost-button" id="preset-pyramid" type="button">Seed Pyramid</button>
+            <button class="ghost-button" id="preset-ring" type="button">Seed Ring</button>
+            <button class="ghost-button" id="clear-grid" type="button">Clear Shape</button>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading">
+            <h2>Paint</h2>
+            <p>Choose a color, paint individual faces, or recolor the full build at once.</p>
+          </div>
+
+          <div class="palette" id="palette" aria-label="Color palette"></div>
+
+          <label class="field">
+            <span>Custom color</span>
+            <div class="color-field">
+              <input id="custom-color" type="color" value="#f28f3b">
+              <code id="custom-color-value">#f28f3b</code>
+            </div>
+          </label>
+
+          <div class="field">
+            <span>Color scheme</span>
+            <div class="segmented-group" id="scheme-picker" aria-label="Color schemes"></div>
+          </div>
+
+          <div class="action-row">
+            <button class="ghost-button" id="apply-scheme" type="button">Apply to All Blocks</button>
+          </div>
+
+          <div class="status-card" id="paint-status">
+            No face selected yet. Build something and click a surface to paint it.
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading">
+            <h2>Shortcuts</h2>
+            <p>A few quick ways to work faster.</p>
+          </div>
+          <ul class="tips-list">
+            <li>Click or drag across the grid to sculpt your pattern.</li>
+            <li>Rotate the preview to reach different side faces.</li>
+            <li>Symmetry modes mirror each build action automatically.</li>
+          </ul>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <section class="panel editor-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Editor</p>
+              <h2>Pattern Grid</h2>
+            </div>
+            <p class="panel-copy">
+              Height values stay visible as the grid scales up, and larger layouts can scroll when needed.
+            </p>
+          </div>
+          <div class="grid-editor-wrap">
+            <div class="grid-editor" id="grid-editor" aria-label="Pattern grid"></div>
+          </div>
+        </section>
+
+        <section class="panel preview-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Preview</p>
+              <h2>Paintable Isometric View</h2>
+            </div>
+            <div class="preview-actions">
+              <button class="ghost-button" id="rotate-left" type="button">Rotate Left</button>
+              <span class="view-pill" id="view-label">0 deg Upright</span>
+              <button class="ghost-button" id="rotate-right" type="button">Rotate Right</button>
+              <button class="ghost-button" id="flip-view" type="button">Flip Upside Down</button>
+            </div>
+          </div>
+
+          <div class="preview-toolbar">
+            <div class="field">
+              <span>Spin direction</span>
+              <div class="segmented-group" id="spin-mode-picker" aria-label="Spin modes"></div>
+            </div>
+
+            <label class="field">
+              <span>Spin speed</span>
+              <div class="range-row">
+                <input id="spin-speed" type="range" min="10" max="180" step="5" value="45">
+                <strong id="spin-speed-value">45 deg/s</strong>
+              </div>
+            </label>
+
+            <button class="ghost-button" id="spin-toggle" type="button">Start Spin</button>
+          </div>
+
+          <svg
+            id="scene"
+            class="scene"
+            viewBox="0 0 1000 760"
+            role="img"
+            aria-label="Isometric preview of the current shape"
+          ></svg>
+
+          <div class="scene-status" id="scene-status">
+            Hover a face to inspect it, then click to apply the current color.
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
